@@ -5,11 +5,11 @@ import boto3
 
 
 class Downloader:
-    def __init__(self, output_folder):
+    def __init__(self, output_folder, output_file):
         self._cookies = os.getenv('COOKIES_FILE')
-        self.output_folder = output_folder
         os.makedirs(output_folder, exist_ok=True)
-        self.output_template = os.path.join(output_folder, "%(title)s.%(ext)s")
+        self.output_template = os.path.join(output_folder, output_file)
+        print(self.output_template)
 
     def download_video(self, video_url: str):
         command = [

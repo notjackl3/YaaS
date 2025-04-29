@@ -6,7 +6,7 @@ import googleapiclient.errors
 from googleapiclient.http import MediaFileUpload
 
 
-def get_authenticated_service(scope, port=8080):
+def get_authenticated_service(scope, port=8090):
     flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
         os.getenv('CLIENT_SECRET_FILE'), scope)
     credentials = flow.run_local_server(port=port)

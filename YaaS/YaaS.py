@@ -1,8 +1,8 @@
 from PIL import Image
 import numpy as np
 import io
-import os
 from dotenv import load_dotenv
+import os
 import subprocess
 from skimage.metrics import structural_similarity as ssim
 import cv2
@@ -12,6 +12,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from uploader import Uploader, get_authenticated_service
 from downloader import Downloader
 from YaaSObject import YaaSObject
+import glob
 
 pixel_to_bit = {(255, 255, 255): "00",
                 (255, 0, 0): "01",
@@ -36,6 +37,7 @@ IMAGE_HEIGHT = 1080
 BLOCKS_DIMENSION = 4
 BLOCKS_PER_IMAGE = int((IMAGE_WIDTH * IMAGE_HEIGHT) / BLOCKS_DIMENSION ** 2)
 
+load_dotenv()
 SCOPES = ['https://www.googleapis.com/auth/youtube.force-ssl']
 CLIENT_SECRET_FILE = os.getenv('CLIENT_SECRET_FILE')
 API_SERVICE_NAME = 'youtube'
@@ -70,7 +72,7 @@ def _closest_color(pixel, palette, black_threshold=40):
 
 
 def wait_for_processing(video_id, cooldown=20):
-    youtube = get_authenticated_service(SCOPES)
+    youtube = get_authenticated_service(SCOPES, 0)
 
     while True:
         try:
@@ -150,12 +152,7 @@ class YaaS:
                 output_bits.append(pixel_to_bit[pixel_value])
         return output_bits
 
-    def upload(self, title, images, output_chunks, frame_rate=2) -> str:
-        for image_id, chunk in enumerate(output_chunks):
-            image = self._draw_image(chunk)
-            image.save(f"chunks/pixel-image{image_id:07d}.png")
-            images.append(image)
-
+    def upload(self, title, frame_rate=2) -> str:
         command = [
             "ffmpeg",
             "-y",
@@ -170,17 +167,22 @@ class YaaS:
         subprocess.run(command, check=True)
 
         uploader = Uploader()
-        uploaded_link = uploader.upload_video("output.mp4", title, "Testing5")
+        uploaded_link = uploader.upload_video("output.mp4", title, "Youtube as a service. By Jack Le.")
         return uploaded_link
 
     def process(self):
+        os.makedirs("returning-chunks", exist_ok=True)
+        files = glob.glob('returning-chunks/*')
+        for f in files:
+            os.remove(f)
+
         chunks_length = len(self.main.output_chunks)
         file_name = self.main.name
         link = self.main.yt_video_link
         script_dir = os.path.dirname(os.path.abspath(__file__))
         output_folder = os.path.join(script_dir, "downloads")
 
-        downloader = Downloader(output_folder)
+        downloader = Downloader(output_folder, file_name)
         downloader.download_video(link)
 
         vid_cap = cv2.VideoCapture(f'downloads/{file_name}.mp4')
@@ -201,17 +203,30 @@ class YaaS:
             b_list = [int(temp_export[i:i + 8], 2) for i in range(0, len(temp_export), 8)]
             bytes_list.extend(b_list)
 
-        with open(f"restored-{yaas.main.original_file}", "wb") as file2:
+        with open(f"restored-{os.path.basename(yaas.main.original_file)}", "wb") as file2:
             buffer = io.BufferedWriter(file2)
             buffer.write(bytearray(bytes_list))
             buffer.flush()
 
-    def create_video(self, file_name: str, title: str) -> (YaaSObject, str):
+    def create_video(self, file_name: str, title: str, existing_link: str = None) -> (YaaSObject, str):
         obj = YaaSObject(file_name, title)
         obj._start_time = time.time()
         obj.output_chunks = self._create_chunk(obj.original_file)
 
-        obj.yt_video_link = self.upload(obj.name, obj.output_images, obj.output_chunks)
+        os.makedirs("chunks", exist_ok=True)
+        files = glob.glob('chunks/*')
+        for f in files:
+            os.remove(f)
+        for image_id, chunk in enumerate(obj.output_chunks):
+            image = self._draw_image(chunk)
+            image.save(f"chunks/pixel-image{image_id:07d}.png")
+            obj.output_images.append(image)
+
+        if not existing_link:
+            obj.yt_video_link = self.upload(obj.name, 20)
+        else:
+            obj.yt_video_link = existing_link
+
         url_data = urllib.parse.urlparse(obj.yt_video_link)
         video_id = url_data.path[1:]
         obj._end_time = time.time()
@@ -219,11 +234,18 @@ class YaaS:
         return obj, video_id
 
 
-yaas = YaaS(IMAGE_WIDTH, IMAGE_HEIGHT, BLOCKS_DIMENSION)
-yaas.main, yaas.main.yt_video_id = yaas.create_video("2k-image.jpg", "TestingFinally2")
-print("Created. Uploading")
-flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
-credentials = flow.run_local_server(port=0)
-wait_for_processing(yaas.main.yt_video_id)
-print("Uploaded. Processing.")
-yaas.process()
+if __name__ == "__main__":
+    file_to_compress = input("Please enter the name of the file you want to send to youtube: ")
+    print("Creating.")
+
+    yaas = YaaS(IMAGE_WIDTH, IMAGE_HEIGHT, BLOCKS_DIMENSION)
+    yaas.main, yaas.main.yt_video_id = yaas.create_video(file_to_compress, "TestingSample2", "https://youtu.be/el3mWuyuAXo")
+    print("Created. Uploading")
+
+    flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
+    credentials = flow.run_local_server(port=0, host='localhost')
+    wait_for_processing(yaas.main.yt_video_id)
+    print("Uploaded. Processing.")
+
+    yaas.process()
+    print("Processed.")
