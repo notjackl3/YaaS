@@ -40,7 +40,8 @@ BLOCKS_DIMENSION = 4
 BLOCKS_PER_IMAGE = int((IMAGE_WIDTH * IMAGE_HEIGHT) / BLOCKS_DIMENSION ** 2)
 
 load_dotenv()
-SCOPES = ['https://www.googleapis.com/auth/youtube.force-ssl']
+SCOPES = ["https://www.googleapis.com/auth/youtube.upload",
+          "https://www.googleapis.com/auth/youtube.force-ssl"]
 CLIENT_SECRET_FILE = os.getenv('CLIENT_SECRET_FILE')
 API_SERVICE_NAME = 'youtube'
 API_VERSION = 'v3'
@@ -94,11 +95,11 @@ def _create_grid_4x4(dx, dy):
 
 
 def wait_for_processing(video_id, cooldown=20):
-    youtube = get_authenticated_service(SCOPES, 0)
+    youtube = get_authenticated_service()
 
     while True:
-        print("process attempt.")
         try:
+            print("Process attempt.")
             video_request = youtube.videos().list(
                 part="snippet,contentDetails,processingDetails",
                 id=video_id
@@ -267,7 +268,10 @@ class YaaS:
 
         if not existing_link:
             print("Uploading onto Youtube.")
-            self.compile(5)
+            if len(os.listdir("chunks")) > 5:
+                self.compile(5) # Compile the video in 5 frame per seconds
+            else:
+                self.compile(1)
             obj.yt_video_link = self.upload(obj.name)
         else:
             obj.yt_video_link = existing_link
@@ -285,11 +289,9 @@ if __name__ == "__main__":
 
     yaas = YaaS(IMAGE_WIDTH, IMAGE_HEIGHT, BLOCKS_DIMENSION)
     existing_youtube_link = None
-    yaas.main, yaas.main.yt_video_id = yaas.create_video(file_to_compress, "TestingSample7", existing_youtube_link)
+    yaas.main, yaas.main.yt_video_id = yaas.create_video(file_to_compress, "TestingSample1", existing_youtube_link)
     print("Created. Uploading")
 
-    flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
-    credentials = flow.run_local_server(port=0, host='localhost')
     print("First process attempt.")
     wait_for_processing(yaas.main.yt_video_id)
     print("Uploaded. Processing.")
