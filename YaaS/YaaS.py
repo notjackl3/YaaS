@@ -121,7 +121,7 @@ def wait_for_processing(video_id, cooldown=20):
 
 
 class YaaS:
-    def __init__(self, width: int, height: int, dimension: int) -> None:
+    def __init__(self, width: int = IMAGE_WIDTH, height: int = IMAGE_HEIGHT, dimension: int = BLOCKS_DIMENSION) -> None:
         self.image_width = width
         self.image_height = height
         self.blocks_dimension = dimension
@@ -285,7 +285,6 @@ class YaaS:
 
 if __name__ == "__main__":
     file_to_compress = input("Please enter the name of the file you want to send to youtube: ")
-    print("Creating.")
 
     yaas = YaaS(IMAGE_WIDTH, IMAGE_HEIGHT, BLOCKS_DIMENSION)
     existing_youtube_link = None
