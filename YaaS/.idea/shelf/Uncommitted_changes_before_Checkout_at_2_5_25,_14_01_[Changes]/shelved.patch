@@ -1,0 +1,376 @@
+Index: YaaS.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>import multiprocessing\n\nfrom PIL import Image\nimport numpy as np\nimport io\nfrom dotenv import load_dotenv\nimport os\nimport subprocess\nfrom skimage.metrics import structural_similarity as ssim\nimport cv2\nimport time\nimport urllib.parse\nfrom google_auth_oauthlib.flow import InstalledAppFlow\nfrom uploader import Uploader, get_authenticated_service\nfrom downloader import Downloader\nfrom YaaSObject import YaaSObject\nimport glob\n\npixel_to_bit = {(255, 255, 255): \"00\",\n                (255, 0, 0): \"01\",\n                (0, 255, 0): \"10\",\n                (0, 0, 255): \"11\"}\n\nbit_to_pixel = {\"00\": (255, 255, 255),\n                \"01\": (255, 0, 0),\n                \"10\": (0, 255, 0),\n                \"11\": (0, 0, 255)}\n\ntarget_colors = {\n    \"red\": (255, 0, 0),\n    \"green\": (0, 255, 0),\n    \"blue\": (0, 0, 255),\n    \"white\": (255, 255, 255),\n    \"black\": (0, 0, 0),\n}\n\nIMAGE_WIDTH = 1920\nIMAGE_HEIGHT = 1080\nBLOCKS_DIMENSION = 4\nBLOCKS_PER_IMAGE = int((IMAGE_WIDTH * IMAGE_HEIGHT) / BLOCKS_DIMENSION ** 2)\n\nload_dotenv()\nSCOPES = [\"https://www.googleapis.com/auth/youtube.upload\",\n          \"https://www.googleapis.com/auth/youtube.force-ssl\"]\nCLIENT_SECRET_FILE = os.getenv('CLIENT_SECRET_FILE')\nAPI_SERVICE_NAME = 'youtube'\nAPI_VERSION = 'v3'\n\n\ndef _similar(img1, img2, threshold=0.9):\n    if img1 is None or img2 is None:\n        return False\n    gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)\n    gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)\n    score, _ = ssim(gray1, gray2, full=True)\n    return score > threshold\n\n\ndef _closest_color(pixel, palette, black_threshold=40):\n    pixel = np.array(pixel)\n\n    if np.linalg.norm(pixel) > black_threshold and (0, 0, 0) in palette.values():\n        palette = {name: color for name, color in palette.items() if color != (0, 0, 0)}\n\n    min_dist = float('inf')\n    closest = (0, 0, 0)\n\n    for color in palette.values():\n        dist = np.linalg.norm(pixel - np.array(color))\n        if dist < min_dist:\n            min_dist = dist\n            closest = color\n\n    return tuple(closest)\n\n\ndef _create_grid_4x4(dx, dy):\n    order = [(dx + 1, dy + 1),\n             (dx + 1, dy + 2),\n             (dx + 2, dy + 1),\n             (dx + 2, dy + 2),\n             (dx + 1, dy),\n             (dx + 3, dy + 1),\n             (dx + 2, dy + 3),\n             (dx, dy + 2),\n             (dx + 2, dy),\n             (dx + 3, dy + 2),\n             (dx + 1, dy + 3),\n             (dx, dy + 1),\n             (dx, dy),\n             (dx + 3, dy),\n             (dx, dy + 3),\n             (dx + 3, dy + 3)]\n    return order\n\n\ndef wait_for_processing(video_id, cooldown=20):\n    youtube = get_authenticated_service()\n\n    while True:\n        try:\n            print(\"Process attempt.\")\n            video_request = youtube.videos().list(\n                part=\"snippet,contentDetails,processingDetails\",\n                id=video_id\n            )\n            video_response = video_request.execute()\n            video_item = video_response.get(\"items\")[0]\n            snippet = video_item.get(\"snippet\", {})\n            thumbnails = snippet.get(\"thumbnails\", {})\n            processing_details = video_item.get(\"processingDetails\", {})\n\n            if \"maxres\" in thumbnails:\n                break\n            elif processing_details and processing_details.get(\"processingStatus\") == \"succeeded\":\n                break\n            else:\n                time.sleep(cooldown)\n        except:\n            continue\n\n\nclass YaaS:\n    def __init__(self, width: int = IMAGE_WIDTH, height: int = IMAGE_HEIGHT, dimension: int = BLOCKS_DIMENSION) -> None:\n        self.image_width = width\n        self.image_height = height\n        self.blocks_dimension = dimension\n        self.blocks_per_image = int((width * IMAGE_HEIGHT) / BLOCKS_DIMENSION ** 2)\n\n        self.main: YaaSObject = YaaSObject()\n\n    def _draw_image(self, arr):\n        image_array = np.zeros((self.image_height, self.image_width, 3), dtype=np.uint8)\n        i = 0\n        while i < len(arr):\n            for y in range(0, 1080, self.blocks_dimension):\n                for x in range(0, 1920, self.blocks_dimension):\n                    if i == len(arr):\n                        break\n                    image_array[y:y + self.blocks_dimension, x:x + self.blocks_dimension] = bit_to_pixel[arr[i]]\n                    i += 1\n        image = Image.fromarray(image_array)\n        return image\n\n    def _create_chunk(self, file):\n        with open(file, \"rb\") as file1:\n            content = file1.read()\n            output = []\n\n            for byte in content:\n                bits = f\"{byte:08b}\"\n                output.extend([bits[i:i + 2] for i in range(0, 8, 2)])\n\n            if len(output) > self.blocks_per_image:\n                return [output[i:i + self.blocks_per_image] for i in range(0, len(output), self.blocks_per_image)]\n            else:\n                return [output]\n\n    def _read_image(self, file):\n        img = Image.open(file)\n        pixels = img.load()\n\n        output_bits = []\n        for y in range(0, 1080, self.blocks_dimension):\n            for x in range(0, 1920, self.blocks_dimension):\n                color_count = {}\n                grid = _create_grid_4x4(x, y)\n                for i, (dx, dy) in enumerate(grid):\n                    small_block_value = _closest_color(pixels[dx, dy], target_colors)\n                    count = color_count.get(small_block_value, 0) + 1\n                    color_count[small_block_value] = count\n                    if count == 8:\n                        break\n\n                if (255, 255, 255) in color_count and color_count[(255, 255, 255)] == 8:\n                    pixel_value = (255, 255, 255)\n                else:\n                    pixel_value = max(color_count, key=color_count.get)\n\n                    if pixel_value == (0, 0, 0):\n                        break\n\n                output_bits.append(pixel_to_bit[pixel_value])\n\n        return output_bits\n\n    def compile(self, frame_rate=2):\n        command = [\n            \"ffmpeg\",\n            \"-y\",\n            \"-framerate\", f\"{frame_rate}\",\n            \"-i\", \"chunks/pixel-image%07d.png\",\n            \"-c:v\", \"libx264\",\n            \"-b:v\", \"100M\",\n            \"-pix_fmt\", \"yuv420p\",\n            \"output.mp4\"\n        ]\n        subprocess.run(command, check=True)\n\n    def upload(self, title) -> str:\n        uploader = Uploader()\n        print(f\"Youtube video name: {title}\")\n        uploaded_link = uploader.upload_video(\"output.mp4\", title, \"Youtube as a service. By Jack Le.\")\n        return uploaded_link\n\n    def process(self):\n        os.makedirs(\"returning-chunks\", exist_ok=True)\n        files = glob.glob('returning-chunks/*')\n        for f in files:\n            os.remove(f)\n\n        chunks_length = len(self.main.output_chunks)\n        file_name = self.main.name\n        link = self.main.yt_video_link\n        script_dir = os.path.dirname(os.path.abspath(__file__))\n        output_folder = os.path.join(script_dir, \"downloads\")\n\n        downloader = Downloader(output_folder, file_name)\n        downloader.download_video(link)\n\n        vid_cap = cv2.VideoCapture(f'downloads/{file_name}.mp4')\n        success, image = vid_cap.read()\n        prev_frame = None\n        frame_index = 0\n        while success:\n            if not _similar(image, prev_frame):\n                cv2.imwrite(f\"returning-chunks/pixel-image{frame_index:07d}.png\", image)\n                prev_frame = image.copy()\n                frame_index += 1\n            success, image = vid_cap.read()\n\n        images = []\n        bytes_list = []\n        for id2 in range(chunks_length):\n            images.append(f\"returning-chunks/pixel-image{id2:07d}.png\")\n\n        output_bits = []\n\n        with multiprocessing.Pool(processes=8) as pool:\n            results = pool.map(self._read_image, images)\n\n        for result in results:\n            output_bits.extend(result)\n\n        temp_export = \"\".join(output_bits)\n        b_list = [int(temp_export[i:i + 8], 2) for i in range(0, len(temp_export), 8)]\n        bytes_list.extend(b_list)\n\n        with open(f\"restored-{os.path.basename(yaas.main.original_file)}\", \"wb\") as file2:\n            buffer = io.BufferedWriter(file2)\n            buffer.write(bytearray(bytes_list))\n            buffer.flush()\n\n    def create_video(self, file_name: str, title: str, existing_link: str = None) -> (YaaSObject, str):\n        obj = YaaSObject(file_name, title)\n        obj._start_time = time.time()\n        obj.output_chunks = self._create_chunk(obj.original_file)\n\n        os.makedirs(\"chunks\", exist_ok=True)\n        files = glob.glob('chunks/*')\n        for f in files:\n            os.remove(f)\n        for image_id, chunk in enumerate(obj.output_chunks):\n            image = self._draw_image(chunk)\n            image.save(f\"chunks/pixel-image{image_id:07d}.png\")\n            obj.output_images.append(image)\n        print(f\"Total frames: {len(obj.output_images)}\")\n\n        if not existing_link:\n            print(\"Uploading onto Youtube.\")\n            if len(os.listdir(\"chunks\")) > 5:\n                self.compile(5) # Compile the video in 5 frame per seconds\n            else:\n                self.compile(1)\n            obj.yt_video_link = self.upload(obj.name)\n        else:\n            obj.yt_video_link = existing_link\n\n        url_data = urllib.parse.urlparse(obj.yt_video_link)\n        video_id = url_data.path[1:]\n        obj._end_time = time.time()\n\n        return obj, video_id\n\n\nif __name__ == \"__main__\":\n    file_to_compress = input(\"Please enter the name of the file you want to send to youtube: \")\n\n    yaas = YaaS(IMAGE_WIDTH, IMAGE_HEIGHT, BLOCKS_DIMENSION)\n    existing_youtube_link = None\n    yaas.main, yaas.main.yt_video_id = yaas.create_video(file_to_compress, \"TestingSample1\", existing_youtube_link)\n    print(\"Created. Uploading\")\n\n    print(\"First process attempt.\")\n    wait_for_processing(yaas.main.yt_video_id)\n    print(\"Uploaded. Processing.\")\n\n    yaas.process()\n    print(\"Processed.\")\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/YaaS.py b/YaaS.py
+--- a/YaaS.py	
++++ b/YaaS.py	
+@@ -10,7 +10,7 @@
+ import cv2
+ import time
+ import urllib.parse
+-from google_auth_oauthlib.flow import InstalledAppFlow
++import tempfile
+ from uploader import Uploader, get_authenticated_service
+ from downloader import Downloader
+ from YaaSObject import YaaSObject
+@@ -75,22 +75,10 @@
+ 
+ 
+ def _create_grid_4x4(dx, dy):
+-    order = [(dx + 1, dy + 1),
+-             (dx + 1, dy + 2),
+-             (dx + 2, dy + 1),
+-             (dx + 2, dy + 2),
+-             (dx + 1, dy),
+-             (dx + 3, dy + 1),
+-             (dx + 2, dy + 3),
+-             (dx, dy + 2),
+-             (dx + 2, dy),
+-             (dx + 3, dy + 2),
+-             (dx + 1, dy + 3),
+-             (dx, dy + 1),
+-             (dx, dy),
+-             (dx + 3, dy),
+-             (dx, dy + 3),
+-             (dx + 3, dy + 3)]
++    order = [(dx + 1, dy + 1), (dx + 1, dy + 2), (dx + 2, dy + 1), (dx + 2, dy + 2),
++             (dx + 1, dy), (dx + 3, dy + 1), (dx + 2, dy + 3), (dx, dy + 2),
++             (dx + 2, dy), (dx + 3, dy + 2), (dx + 1, dy + 3), (dx, dy + 1),
++             (dx, dy), (dx + 3, dy), (dx, dy + 3), (dx + 3, dy + 3)]
+     return order
+ 
+ 
+@@ -99,7 +87,6 @@
+ 
+     while True:
+         try:
+-            print("Process attempt.")
+             video_request = youtube.videos().list(
+                 part="snippet,contentDetails,processingDetails",
+                 id=video_id
+@@ -120,180 +107,177 @@
+             continue
+ 
+ 
+-class YaaS:
+-    def __init__(self, width: int = IMAGE_WIDTH, height: int = IMAGE_HEIGHT, dimension: int = BLOCKS_DIMENSION) -> None:
+-        self.image_width = width
+-        self.image_height = height
+-        self.blocks_dimension = dimension
+-        self.blocks_per_image = int((width * IMAGE_HEIGHT) / BLOCKS_DIMENSION ** 2)
+-
+-        self.main: YaaSObject = YaaSObject()
+-
+-    def _draw_image(self, arr):
+-        image_array = np.zeros((self.image_height, self.image_width, 3), dtype=np.uint8)
+-        i = 0
+-        while i < len(arr):
+-            for y in range(0, 1080, self.blocks_dimension):
+-                for x in range(0, 1920, self.blocks_dimension):
+-                    if i == len(arr):
+-                        break
+-                    image_array[y:y + self.blocks_dimension, x:x + self.blocks_dimension] = bit_to_pixel[arr[i]]
+-                    i += 1
+-        image = Image.fromarray(image_array)
+-        return image
++def _draw_image(arr):
++    image_array = np.zeros((IMAGE_HEIGHT, IMAGE_WIDTH, 3), dtype=np.uint8)
++    i = 0
++    while i < len(arr):
++        for y in range(0, 1080, BLOCKS_DIMENSION):
++            for x in range(0, 1920, BLOCKS_DIMENSION):
++                if i == len(arr):
++                    break
++                image_array[y:y + BLOCKS_DIMENSION, x:x + BLOCKS_DIMENSION] = bit_to_pixel[arr[i]]
++                i += 1
++    image = Image.fromarray(image_array)
++    return image
+ 
+-    def _create_chunk(self, file):
+-        with open(file, "rb") as file1:
+-            content = file1.read()
+-            output = []
++
++def _create_chunk(file):
++    with open(file, "rb") as file1:
++        content = file1.read()
++        output = []
+ 
+-            for byte in content:
+-                bits = f"{byte:08b}"
+-                output.extend([bits[i:i + 2] for i in range(0, 8, 2)])
++        for byte in content:
++            bits = f"{byte:08b}"
++            output.extend([bits[i:i + 2] for i in range(0, 8, 2)])
+ 
+-            if len(output) > self.blocks_per_image:
+-                return [output[i:i + self.blocks_per_image] for i in range(0, len(output), self.blocks_per_image)]
+-            else:
+-                return [output]
++        if len(output) > BLOCKS_PER_IMAGE:
++            return [output[i:i + BLOCKS_PER_IMAGE] for i in range(0, len(output), BLOCKS_PER_IMAGE)]
++        else:
++            return [output]
+ 
+-    def _read_image(self, file):
+-        img = Image.open(file)
+-        pixels = img.load()
++
++def _read_image(file):
++    img = Image.open(file)
++    pixels = img.load()
+ 
+-        output_bits = []
+-        for y in range(0, 1080, self.blocks_dimension):
+-            for x in range(0, 1920, self.blocks_dimension):
+-                color_count = {}
+-                grid = _create_grid_4x4(x, y)
+-                for i, (dx, dy) in enumerate(grid):
+-                    small_block_value = _closest_color(pixels[dx, dy], target_colors)
+-                    count = color_count.get(small_block_value, 0) + 1
+-                    color_count[small_block_value] = count
+-                    if count == 8:
+-                        break
++    output_bits = []
++    for y in range(0, 1080, BLOCKS_DIMENSION):
++        for x in range(0, 1920, BLOCKS_DIMENSION):
++            color_count = {}
++            grid = _create_grid_4x4(x, y)
++            for i, (dx, dy) in enumerate(grid):
++                small_block_value = _closest_color(pixels[dx, dy], target_colors)
++                count = color_count.get(small_block_value, 0) + 1
++                color_count[small_block_value] = count
++                if count == 8:
++                    break
+ 
+-                if (255, 255, 255) in color_count and color_count[(255, 255, 255)] == 8:
+-                    pixel_value = (255, 255, 255)
+-                else:
+-                    pixel_value = max(color_count, key=color_count.get)
++            if (255, 255, 255) in color_count and color_count[(255, 255, 255)] == 8:
++                pixel_value = (255, 255, 255)
++            else:
++                pixel_value = max(color_count, key=color_count.get)
+ 
+-                    if pixel_value == (0, 0, 0):
+-                        break
++                if pixel_value == (0, 0, 0):
++                    break
+ 
+-                output_bits.append(pixel_to_bit[pixel_value])
++            output_bits.append(pixel_to_bit[pixel_value])
+ 
+-        return output_bits
++    return output_bits
+ 
+-    def compile(self, frame_rate=2):
+-        command = [
+-            "ffmpeg",
+-            "-y",
+-            "-framerate", f"{frame_rate}",
+-            "-i", "chunks/pixel-image%07d.png",
+-            "-c:v", "libx264",
+-            "-b:v", "100M",
+-            "-pix_fmt", "yuv420p",
+-            "output.mp4"
+-        ]
+-        subprocess.run(command, check=True)
++
++def compile_video(frame_rate=2):
++    command = [
++        "ffmpeg",
++        "-y",
++        "-framerate", f"{frame_rate}",
++        "-i", "chunks/pixel-image%07d.png",
++        "-c:v", "libx264",
++        "-b:v", "100M",
++        "-pix_fmt", "yuv420p",
++        "output.mp4"
++    ]
++    subprocess.run(command, check=True)
+ 
+-    def upload(self, title) -> str:
+-        uploader = Uploader()
+-        print(f"Youtube video name: {title}")
+-        uploaded_link = uploader.upload_video("output.mp4", title, "Youtube as a service. By Jack Le.")
+-        return uploaded_link
++
++def upload(title) -> str:
++    uploader = Uploader()
++    print(f"Youtube video name: {title}")
++    uploaded_link = uploader.upload_video("output.mp4", title, "Youtube as a service. By Jack Le.")
++    return uploaded_link
+ 
+-    def process(self):
+-        os.makedirs("returning-chunks", exist_ok=True)
+-        files = glob.glob('returning-chunks/*')
+-        for f in files:
+-            os.remove(f)
++
++def process():
++    os.makedirs("returning-chunks", exist_ok=True)
++    files = glob.glob('returning-chunks/*')
++    for f in files:
++        os.remove(f)
+ 
+-        chunks_length = len(self.main.output_chunks)
+-        file_name = self.main.name
+-        link = self.main.yt_video_link
+-        script_dir = os.path.dirname(os.path.abspath(__file__))
+-        output_folder = os.path.join(script_dir, "downloads")
++    chunks_length = len(main.output_chunks)
++    file_name = main.name
++    link = main.yt_video_link
++    script_dir = os.path.dirname(os.path.abspath(__file__))
++    output_folder = os.path.join(script_dir, "downloads")
+ 
+-        downloader = Downloader(output_folder, file_name)
+-        downloader.download_video(link)
++    downloader = Downloader(output_folder, file_name)
++    downloader.download_video(link)
+ 
+-        vid_cap = cv2.VideoCapture(f'downloads/{file_name}.mp4')
+-        success, image = vid_cap.read()
+-        prev_frame = None
+-        frame_index = 0
+-        while success:
+-            if not _similar(image, prev_frame):
+-                cv2.imwrite(f"returning-chunks/pixel-image{frame_index:07d}.png", image)
+-                prev_frame = image.copy()
+-                frame_index += 1
+-            success, image = vid_cap.read()
++    vid_cap = cv2.VideoCapture(f'downloads/{file_name}.mp4')
++    success, image = vid_cap.read()
++    prev_frame = None
++    frame_index = 0
++    while success:
++        if not _similar(image, prev_frame):
++            cv2.imwrite(f"returning-chunks/pixel-image{frame_index:07d}.png", image)
++            prev_frame = image.copy()
++            frame_index += 1
++        success, image = vid_cap.read()
+ 
+-        images = []
+-        bytes_list = []
+-        for id2 in range(chunks_length):
+-            images.append(f"returning-chunks/pixel-image{id2:07d}.png")
++    images = []
++    bytes_list = []
++    for id2 in range(chunks_length):
++        images.append(f"returning-chunks/pixel-image{id2:07d}.png")
+ 
+-        output_bits = []
++    output_bits = []
+ 
+-        with multiprocessing.Pool(processes=8) as pool:
+-            results = pool.map(self._read_image, images)
++    with multiprocessing.Pool(processes=8) as pool:
++        results = pool.map(_read_image, images)
+ 
+-        for result in results:
+-            output_bits.extend(result)
++    for result in results:
++        output_bits.extend(result)
+ 
+-        temp_export = "".join(output_bits)
+-        b_list = [int(temp_export[i:i + 8], 2) for i in range(0, len(temp_export), 8)]
+-        bytes_list.extend(b_list)
++    temp_export = "".join(output_bits)
++    b_list = [int(temp_export[i:i + 8], 2) for i in range(0, len(temp_export), 8)]
++    bytes_list.extend(b_list)
+ 
+-        with open(f"restored-{os.path.basename(yaas.main.original_file)}", "wb") as file2:
+-            buffer = io.BufferedWriter(file2)
+-            buffer.write(bytearray(bytes_list))
+-            buffer.flush()
++    with open(f"restored-{os.path.basename(yaas.main.original_file)}", "wb") as file2:
++        buffer = io.BufferedWriter(file2)
++        buffer.write(bytearray(bytes_list))
++        buffer.flush()
+ 
+-    def create_video(self, file_name: str, title: str, existing_link: str = None) -> (YaaSObject, str):
+-        obj = YaaSObject(file_name, title)
+-        obj._start_time = time.time()
+-        obj.output_chunks = self._create_chunk(obj.original_file)
++
++def create_video(file_name: str, title: str, existing_link: str = None):
++    obj = YaaSObject(file_name, title)
++    obj.output_chunks = _create_chunk(obj.original_file)
+ 
+-        os.makedirs("chunks", exist_ok=True)
+-        files = glob.glob('chunks/*')
+-        for f in files:
+-            os.remove(f)
++    os.makedirs("chunks", exist_ok=True)
++    files = glob.glob('chunks/*')
++    for f in files:
++        os.remove(f)
++
++    with tempfile.TemporaryDirectory() as temp_dir:
+         for image_id, chunk in enumerate(obj.output_chunks):
+-            image = self._draw_image(chunk)
+-            image.save(f"chunks/pixel-image{image_id:07d}.png")
++            image = _draw_image(chunk)
++            file_path = os.path.join(temp_dir, f"pixel-image{image_id:07d}.png")
++            image.save(file_path)
+             obj.output_images.append(image)
+-        print(f"Total frames: {len(obj.output_images)}")
+ 
+-        if not existing_link:
+-            print("Uploading onto Youtube.")
+-            if len(os.listdir("chunks")) > 5:
+-                self.compile(5) # Compile the video in 5 frame per seconds
+-            else:
+-                self.compile(1)
+-            obj.yt_video_link = self.upload(obj.name)
+-        else:
+-            obj.yt_video_link = existing_link
++    if not existing_link:
++        print("Uploading onto Youtube.")
++        if len(os.listdir("chunks")) > 5:
++            compile_video(5)  # Compile the video in 5 frame per seconds
++        else:
++            compile_video(1)
++        obj.yt_video_link = upload(obj.name)
++    else:
++        obj.yt_video_link = existing_link
+ 
+-        url_data = urllib.parse.urlparse(obj.yt_video_link)
+-        video_id = url_data.path[1:]
+-        obj._end_time = time.time()
++    url_data = urllib.parse.urlparse(obj.yt_video_link)
++    video_id_output = url_data.path[1:]
++    obj._end_time = time.time()
+ 
+-        return obj, video_id
++    return obj, video_id_output
+ 
+ 
+-if __name__ == "__main__":
+-    file_to_compress = input("Please enter the name of the file you want to send to youtube: ")
++file_to_compress = input("Please enter the name of the file you want to send to youtube: ")
++video_name = input("Please enter the video name")
+ 
+-    yaas = YaaS(IMAGE_WIDTH, IMAGE_HEIGHT, BLOCKS_DIMENSION)
+-    existing_youtube_link = None
+-    yaas.main, yaas.main.yt_video_id = yaas.create_video(file_to_compress, "TestingSample1", existing_youtube_link)
+-    print("Created. Uploading")
++existing_youtube_link = None
++video_object, video_id = create_video(file_to_compress, video_name, existing_youtube_link)
++print("Created. Uploading")
+ 
+-    print("First process attempt.")
+-    wait_for_processing(yaas.main.yt_video_id)
+-    print("Uploaded. Processing.")
++print("First process attempt.")
++wait_for_processing(video_id)
++print("Uploaded. Processing.")
+ 
+-    yaas.process()
+-    print("Processed.")
++process()
++print("Processed.")

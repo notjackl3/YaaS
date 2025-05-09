@@ -1,0 +1,188 @@
+{% load compress %}
+{% load static %}
+
+{{ '<' }}{{ '!DOCTYPE html>' }}
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
+    <title> YaaS </title>
+
+    {% compress css %}
+    <link rel="stylesheet" href="{% static 'src/output.css' %}">
+    {% endcompress %}
+
+    <style>
+        .channel-name {
+          margin-right: 10px;
+        }
+
+        .button {
+          cursor: pointer;
+        }
+
+        .grayed-out {
+          background-color: rgb(200, 200, 200);
+          cursor: not-allowed;
+        }
+
+        #download-video {
+          margin-top: 12px;
+        }
+
+        #log-in {
+          padding: 0.85em 1em;
+          font-size: 0.85rem;
+          border-radius: 0.5em;
+          background-color: rgb(220, 220, 220);
+          color: black;
+          transition: background-color 0.3s ease;
+        }
+
+        #log-in:hover {
+          background-color: teal;
+          color: white;
+        }
+
+        #log-out {
+          padding: 0.85em 1em;
+          font-size: 0.85rem;
+          border-radius: 0.5em;
+          background-color: rgb(220, 220, 220);
+          color: black;
+          transition: background-color 0.3s ease;
+        }
+
+        #log-out:hover {
+          background-color: salmon;
+          color: white;
+        }
+
+        body {
+          display: grid;
+          min-height: 100vh;
+          background-color: #eee;
+        }
+
+        input[type="file"] {
+          margin: auto;
+          padding: 0.85em 0em;
+          font-size: 0.85rem;
+          border-radius: 1em;
+          background-color: transparent;
+          transition: border-color 0.25s ease-in-out;
+
+          &::file-selector-button {
+            padding: 0.4em 1em;
+            font-size: 0.85rem;
+            border: none;
+            border-radius: 1em;
+            background-color: salmon;
+            color: white;
+            transition: all 0.1s ease-in-out;
+            margin-right: 0.75em;
+          }
+
+          &:hover {
+            border-color: #888;
+
+            &::file-selector-button {
+              background-color: coral;
+              cursor: pointer;
+            }
+          }
+        }
+
+
+    </style>
+</head>
+
+<body class="bg-green-50">
+    <div class="w-screen mx-8 mt-8">
+        <nav class="flex items-center justify-between p-4 bg-transparent dark:bg-gray-800">
+            <a href="/">
+                <h1 class="text-4xl font-extrabold leading-none tracking-tight text-gray-900 md:text-5xl lg:text-6xl dark:text-white">
+                    Youtube as a Service
+                </h1>
+            </a>
+            {% if authenticated %}
+            <form action="/remove_authorize/" enctype="multipart/form-data" method="POST">
+                {% csrf_token %}
+                <label class="channel-name" for="log-out"> {{channel_name}} </label>
+                <button type="submit" id="log-out" name="log-out" class="button"> Log Out </button>
+            </form>
+            {% else %}
+            <form action="/authorize/" enctype="multipart/form-data" method="POST">
+                {% csrf_token %}
+                <label class="channel-name" for="log-in"> {{channel_name}} </label>
+                <button type="submit" id="log-in" name="log-in" class="button"> Log In </button>
+            </form>
+            {% endif %}
+        </nav>
+
+        <p> You can now have unlimited storage using Youtube, storing ANY files! </p>
+        <form action="/upload/" enctype="multipart/form-data" method="POST">
+            {% csrf_token %}
+            <div class="mt-8">
+                <label for="file_name" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">
+                    Enter your file name:
+                </label>
+                <input type="text" id="file_name" name="file_name" placeholder="very-cool-image" class="block w-full p-2 text-gray-900 border border-gray-300 rounded-lg bg-gray-50 text-xs focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500 placeholder-gray-300">
+            </div>
+
+            <input type="file" name="file_upload" id="file_upload">
+
+            <br>
+
+            {% if authenticated %}
+            <button type="submit" class="button text-white bg-gradient-to-r from-red-400 via-red-500 to-red-600 hover:bg-gradient-to-br focus:ring-4 focus:outline-none focus:ring-red-300 dark:focus:ring-red-800 font-medium rounded-lg text-sm px-5 py-2.5 text-center me-2 mb-2">
+                Upload File to Video
+            </button>
+            {% else %}
+            <button type="submit" class="grayed-out button text-white font-medium rounded-lg text-sm px-5 py-2.5 text-center me-2 mb-2">
+                Upload File to Video
+            </button>
+            {% endif %}
+
+        </form>
+
+        {% if message_type == 'upload' %}
+            {% if messages %}
+            <div>
+                {% for message in messages %}
+                <h5> {{message|safe}} </h5>
+                {% endfor %}
+            </div>
+            {% endif %}
+        {% endif %}
+
+        <form action="/download/" enctype="multipart/form-data" method="POST">
+            {% csrf_token %}
+            <div class="mt-8">
+                <label for="youtube_link" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">
+                    Enter Youtube link:
+                </label>
+                <input type="text" id="youtube_link" name="youtube_link" placeholder="https://youtu.be/..." class="block w-full p-2 text-gray-900 border border-gray-300 rounded-lg bg-gray-50 text-xs focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500 placeholder-gray-300">
+            </div>
+
+            <button type="submit" id="download-video" class="button text-white bg-gradient-to-r from-blue-500 via-blue-600 to-blue-700 hover:bg-gradient-to-br focus:ring-4 focus:outline-none focus:ring-blue-300 dark:focus:ring-blue-800 font-medium rounded-lg text-sm px-5 py-2.5 text-center me-2 mb-2">
+                Download File from Video
+            </button>
+        </form>
+
+        {% if message_type == 'download' %}
+            {% if messages %}
+            <div>
+                {% for message in messages %}
+                <h5> {{message}} </h5>
+                {% endfor %}
+            </div>
+            {% endif %}
+        {% endif %}
+
+    </div>
+</body>
+
+</html>
