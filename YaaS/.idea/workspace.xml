@@ -4,7 +4,27 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d43853e1-12a3-427c-8028-09ad49f84d70" name="Changes" comment="Working version 1.1." />
+    <list default="true" id="d43853e1-12a3-427c-8028-09ad49f84d70" name="Changes" comment="Working version 1.1.">
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/YaaS.py" beforeDir="false" afterPath="$PROJECT_DIR$/samples/YaaS.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/YaaSObject.py" beforeDir="false" afterPath="$PROJECT_DIR$/samples/YaaSObject.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/downloader.py" beforeDir="false" afterPath="$PROJECT_DIR$/samples/downloader.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/output.mp4" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/restored-2k-image.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/testing.py" beforeDir="false" afterPath="$PROJECT_DIR$/samples/testing.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/uploader.py" beforeDir="false" afterPath="$PROJECT_DIR$/samples/uploader.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/yaas_server/restored-4k image mountain" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/yaas_server/restored-Huu_An_Duc_Le_Resume_Z4V0djz.pdf" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/yaas_server/restored-asdasdasd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/yaas_server/restored-christmas" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/yaas_server/restored-duck" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/yaas_server/restored-duck 2" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/yaas_server/restored-final result" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/yaas_server/restored-large video file" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/yaas_server/restored-robot" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/yaas_server/uploader/processor.py" beforeDir="false" afterPath="$PROJECT_DIR$/yaas_server/uploader/processor.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -79,9 +99,9 @@
       <recent name="$PROJECT_DIR$/yaas_server/uploader" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/samples" />
       <recent name="$PROJECT_DIR$/yaas_server/uploader/extras" />
       <recent name="$PROJECT_DIR$/yaas_server/uploader/templates" />
-      <recent name="$PROJECT_DIR$/samples" />
     </key>
   </component>
   <component name="RunManager">
@@ -98,7 +118,7 @@
       <option name="IS_MODULE_SDK" value="true" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/YaaS.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/samples/YaaS.py" />
       <option name="PARAMETERS" value="" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
@@ -164,7 +184,7 @@
       <option name="IS_MODULE_SDK" value="true" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/uploader.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/samples/uploader.py" />
       <option name="PARAMETERS" value="" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />

@@ -298,7 +298,7 @@ def main_upload_function(request, file_to_compress, video_name):
             # shutil.copyfile(f"{main_folder}/restored-{os.path.basename(file_to_compress)}", dst)
 
 
-def main_downloadgit merge temporary_function(video_name, yt_video_link):
+def main_download_function(video_name, yt_video_link):
     with tempfile.TemporaryDirectory() as main_folder:
         process(main_folder, video_name, yt_video_link)
         print("Processed.")
