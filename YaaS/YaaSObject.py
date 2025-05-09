@@ -11,8 +11,5 @@ class YaaSObject:
         self.yt_video_link = ""
         self.yt_video_id = ""
 
-        self._start_time = 0
-        self._end_time = 0
-
     def get_time_taken(self):
         return f"{self._end_time - self._start_time} seconds."
